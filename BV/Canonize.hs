@@ -10,8 +10,9 @@ module BV.Canonize(termToCTerm,
 import Data.Bits
 import Data.List
 import Data.Maybe
+import Debug.Trace
 
-import Util
+import Util hiding (trace)
 import TSLUtil hiding (assert)
 import BV.Types
 import BV.Util
@@ -136,28 +137,29 @@ groupTerm t ts = (grouped, rest)
 -----------------------------------------------------------------
 
 termToCTerm :: Term -> CTerm
-termToCTerm = termToCTerm' . termSimplify . termValidate
+termToCTerm t = {-trace ("termToCTerm: t=" ++ show t ++ " simplified=" ++ show tsimp) $-} termToCTerm' tsimp
+    where tsimp = termSimplify $ termValidate t
 
 termToCTerm' :: Term -> CTerm
 termToCTerm' (TConst c)       = CTerm [] c
 termToCTerm' (TVar v)         = CTerm [(1,(v,(0, width v - 1)))] (zero $ width v)
-termToCTerm' (TSlice t (l,h)) = t'
+termToCTerm' (TSlice t (l,h)) = {-trace ("termToCTerm' " ++ show (TSlice t (l,h)) ++ "=" ++ show t' ++ "(" ++ show (width t') ++ ")")-} t'
     where w = h - l + 1
           ct@(CTerm ts c) = termToCTerm' t
           t' = if' (null ts) 
                    (CTerm [] $ constSlice (cVal c) (l,h))                                   $
                if' (l == 0)
-                   (CTerm (map (\(i,v) -> (i `mod2` w, v)) ts) $ constSlice (cVal c) (l,h)) $
+                   (CTerm (map (\(i,(v,(l',_))) -> (i `mod2` w, (v,(l',l'+h)))) ts) $ constSlice (cVal c) (l,h)) $
                if' (length ts == 1 && cVal c == 0 && (fst $ head ts) == 1)
-                   (CTerm [(1,(fst $ snd $ head ts,(l,h)))] c)
+                   (CTerm [(1,(fst $ snd $ head ts,(l,h)))] $ zero w)
                    (error $ "BV.termCanonize: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
 termToCTerm' (TConcat ts)      = ctermPlus ts''
     where ts' = map termToCTerm' ts
           w = sum $ map width ts'
-          (_, ts'') = foldl' (\(off, cts) ct -> (off+width ct, ctermMul ct (1 `shiftL` width ct) w:cts)) 
+          (_, ts'') = foldl' (\(off, cts) ct -> (off+width ct, ctermMul ct (1 `shiftL` off) w:cts)) 
                              (0,[]) ts'
 
-termToCTerm' (TNeg t)          = ct'
+termToCTerm' (TNeg t)          = {-trace ("termToCTerm' " ++ show (TNeg t) ++ "=" ++ show ct')-} ct'
     where ct = termToCTerm' t
           w = width ct
           ct' = ctermPlus [(ctermMul ct (-1) w), CTerm [] (mkConst (-1) w)]

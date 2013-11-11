@@ -9,7 +9,9 @@ module BV.Types(WithWidth(..),
                 CTerm(..),
                 CAtom(..),
                 ppSlice,
-                termIsConst) where
+                termIsConst,
+                (.++),
+                (.:)) where
 
 import Text.PrettyPrint
 
@@ -71,14 +73,13 @@ data Term = TConst  Const
           deriving (Eq,Ord)
 
 instance PP Term where
-    pp (TConst  c)   = pp c
-    pp (TVar    v)   = pp v
-    pp (TSlice  t s) = pp t <> ppSlice s
-    pp (TConcat [t]) = pp t
-    pp (TConcat ts)  = parens $ hcat $ punctuate (text "++") $ map pp ts
-    pp (TNeg    t)       = parens $ char '~' <> pp t
-    pp (TPlus   ts)      = parens $ hcat $ punctuate (char '+') $ map pp ts
-    pp (TMul    c t w)   = pp c <> char '*' <> pp t <> (braces $ pp w)
+    pp (TConst  c)     = pp c
+    pp (TVar    v)     = pp v
+    pp (TSlice  t s)   = pp t <> ppSlice s
+    pp (TConcat ts)    = parens $ hcat $ punctuate (text "++") $ map pp ts
+    pp (TNeg    t)     = parens $ char '~' <> pp t
+    pp (TPlus   ts)    = parens $ hcat $ punctuate (char '+') $ map pp ts
+    pp (TMul    c t w) = pp c <> char '*' <> pp t <> (braces $ pp w)
 
 instance Show Term where
     show = render . pp
@@ -96,6 +97,13 @@ instance WithWidth Term where
 termIsConst :: Term -> Bool
 termIsConst (TConst _) = True
 termIsConst _          = False
+
+
+(.++) :: Term -> Term -> Term
+(.++) t1 t2 = TConcat [t1,t2]
+
+(.:) :: Term -> (Int,Int) -> Term
+(.:) t s = TSlice t s
 
 -- Input atom
 data Atom = Atom Rel Term Term
