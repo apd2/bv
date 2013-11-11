@@ -1,5 +1,25 @@
-module BV.Util() where
+{-# LANGUAGE RecordWildCards #-}
 
+module BV.Util(mod2,
+               zero,
+               mkConst, 
+               constSlice,
+               constMul,
+               constInvert,
+               constNeg,
+               constConcat,
+               catom,
+               ctermPlus,
+               ctermMul,
+               ctermUMinus,
+               ctermSubst,
+               catomSolve) where
+
+import Data.Bits
+import Data.List
+import Math.NumberTheory.Moduli
+
+import Util
 import BV.Types
 
 mod2 :: Integer -> Int -> Integer
@@ -9,50 +29,51 @@ mod2 i w = i `mod` (1 `shiftL` w)
 zero :: Int -> Const
 zero w = Const 0 w
 
-const :: Integer -> Int -> Const
-const i w = Const (i `mod2` w) w
+mkConst :: Integer -> Int -> Const
+mkConst i w = Const (i `mod2` w) w
 
 constSlice :: Integer -> (Int, Int) -> Const
 constSlice c (l,h) = Const (foldl' (\a i -> if' (testBit c i) (setBit a (i-l)) a) 0 [l..h]) (h - l + 1)
 
 constMul :: Integer -> Const -> Int -> Const
-constMul c cn w = const (c * (cVal cn)) w
+constMul c cn w = mkConst (c * (cVal cn)) w
 
-constInvert :: Integer -> Int -> Integer
+constInvert :: Integer -> Int -> Maybe Integer
 constInvert i w = invertMod i (1 `shiftL` w)
 
 constNeg :: Const -> Const
-constNeg (Const c w) = const (complement c) `mod2` w) w
+constNeg (Const c w) = mkConst ((complement c) `mod2` w) w
 
 constConcat :: Const -> Const -> Const
-constConcat c1 c2 = const (c1 + (c2 `shiftL` (width c1))) (width c1 + width c2)
+constConcat c1 c2 = mkConst (cVal c1 + (cVal c2 `shiftL` (width c1))) (width c1 + width c2)
 
 -- assumes that terms have been gathered already
 ctermOrder :: CTerm -> CTerm
-ctermOrder (CTerm ts c) = CTerm (sortBy (compare . snd) ts) c
+ctermOrder (CTerm ts c) = CTerm (sortBy (\t1 t2 -> compare (snd t1) (snd t2)) ts) c
 
 ctermGather :: CTerm -> CTerm
 ctermGather (CTerm ts c) = CTerm ts' c
     where w = width c
           ts' = filter ((/= 0) . fst)
-                $ map (\ts'@((_,v):_) -> ((sum $ map fst ts') `mod2` w, v))
+                $ map (\ts0@((_,v):_) -> ((sum $ map fst ts0) `mod2` w, v))
                 $ sortAndGroup snd ts
 
 ctermPlus :: [CTerm] -> CTerm
 ctermPlus = ctermOrder . ctermGather . ctermPlus'
 
 ctermPlus' :: [CTerm] -> CTerm
-ctermPlus' ts = CTerm (concatMap ctVars ts, const (sum $ map ctConst ts) w)
+ctermPlus' ts = CTerm (concatMap ctVars ts) (mkConst (sum $ map (cVal . ctConst) ts) w)
+    where w = width $ head ts
 
 ctermMul :: CTerm -> Integer -> Int -> CTerm
-ctermMul t c w = ctermOrder . ctermGather . ctermMul' t c w
+ctermMul t c w = ctermOrder $ ctermGather $ ctermMul' t c w
 
 ctermMul' :: CTerm -> Integer -> Int -> CTerm
-ctermMul' CTerm{..} c w = CTerm (map (\(i,v) -> (i*c) `mod2` w) ctVars) (const ((cVal ctConst) * c) w)
+ctermMul' CTerm{..} c w = CTerm (map (\(i,v) -> ((i*c) `mod2` w, v)) ctVars) (mkConst ((cVal ctConst) * c) w)
 
 ctermSubst :: (Var, (Int,Int)) -> CTerm -> CTerm -> CTerm
 ctermSubst v ct ct'@(CTerm vs c) = ctermPlus
-                                   $ (map (\(i,v') -> if' (v'==v) (ctermMul ct i w) (CTerm [(i,v')] (zero w)) vs)) 
+                                   $ (map (\(i,v') -> if' (v'==v) (ctermMul ct i w) (CTerm [(i,v')] (zero w))) vs) 
                                      ++ [CTerm [] c]
     where w = width ct'
 
@@ -70,10 +91,11 @@ catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 -- Solve atom wrt given variable
 catomSolve :: (Var, (Int,Int)) -> CAtom -> Maybe CTerm
-catomSolve (CAtom rel ct1 ct2) | rel /= Eq = Nothing
-                               | null lhs  = Nothing
-                               | otherwise = Just $ ctermMul (ctermUMinus $ CTerm rhs ctConst) (constInvert i w) w
+catomSolve v (CAtom rel ct1 ct2) | rel /= Eq  = Nothing
+                                 | null lhs   = Nothing
+                                 | otherwise  = fmap (\inv -> ctermMul (ctermUMinus $ CTerm rhs ctConst) inv w) minv
     where CTerm{..} = ctermPlus [ct1, ctermUMinus ct2]
-          (lhs, rhs) = partition (\(i,v') -> v' == v && odd i) ctVars
+          (lhs, rhs) = partition ((== v) . snd) ctVars
           [(i,_)] = lhs
           w = width ct1
+          minv = constInvert i w

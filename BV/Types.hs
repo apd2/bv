@@ -1,14 +1,19 @@
-module BV.Types(Var(..),
+{-# LANGUAGE RecordWildCards #-}
+
+module BV.Types(WithWidth(..),
+                Var(..),
                 Const(..),
                 Rel(..),
                 Term(..),
                 Atom(..),
                 CTerm(..),
                 CAtom(..),
-                ppSlice) where
+                ppSlice,
+                termIsConst) where
 
 import Text.PrettyPrint
 
+import Util
 import PP
 
 class WithWidth a where
@@ -16,7 +21,7 @@ class WithWidth a where
 
 data Var = Var { vName  :: String
                , vWidth :: Int
-               }
+               } deriving (Eq, Ord)
 
 instance PP Var where
     pp Var{..} = pp vName <> (braces $ pp vWidth)
@@ -29,7 +34,7 @@ instance WithWidth Var where
 
 data Const = Const { cVal   :: Integer
                    , cWidth :: Int 
-                   }
+                   } deriving (Eq, Ord)
 
 instance PP Const where
     pp Const{..} = pp cVal <> (braces $ pp cWidth)
@@ -40,7 +45,7 @@ instance Show Const where
 instance WithWidth Const where
     width = cWidth
 
-data Rel = Eq | Neq | Lt | Lte deriving (Eq)
+data Rel = Eq | Neq | Lt | Lte deriving (Eq, Ord)
 
 instance PP Rel where
     pp Eq  = text "=="
@@ -57,12 +62,13 @@ ppSlice :: (Int,Int) -> Doc
 ppSlice (l,h) = brackets $ if' (l==h) (pp l) (pp l <> char ':' <> pp h)
 
 data Term = TConst  Const
-            TVar    Var
-            TSlice  Term (Int, Int)
-            TConcat [Term]
-            TNeg    Term
-            TPlus   [Term]       -- all terms must be of equal width
-            TMul    Integer Term Int
+          | TVar    Var
+          | TSlice  Term (Int, Int)
+          | TConcat [Term]
+          | TNeg    Term
+          | TPlus   [Term]       -- all terms must be of equal width
+          | TMul    Integer Term Int
+          deriving (Eq,Ord)
 
 instance PP Term where
     pp (TConst  c)   = pp c
@@ -85,6 +91,11 @@ instance WithWidth Term where
     width (TNeg t)         = width t
     width (TPlus (t:_))    = width t
     width (TMul _ _ w)     = w
+    width t                = error $ "width " ++ show t
+
+termIsConst :: Term -> Bool
+termIsConst (TConst _) = True
+termIsConst _          = False
 
 -- Input atom
 data Atom = Atom Rel Term Term
@@ -98,7 +109,7 @@ instance Show Atom where
 -- Term in canonical form (linear combination of vars)
 data CTerm = CTerm { ctVars  :: [(Integer,(Var,(Int,Int)))]
                    , ctConst :: Const
-                   }
+                   } deriving (Eq,Ord)
 
 instance PP CTerm where
     pp (CTerm [] c)             = pp c
@@ -118,10 +129,10 @@ instance WithWidth CTerm where
 
 -- Atom in canonical form
 -- Truly canonical form requires that the LHS CTerm is a naked variable
-data CAtom = CAtom Rel CTerm CTerm
+data CAtom = CAtom Rel CTerm CTerm deriving (Eq, Ord)
 
 instance PP CAtom where
-    pp (CAtom r t1 t2) = pp t1 <+> pp rel <+> pp t2 
+    pp (CAtom r t1 t2) = pp t1 <+> pp r <+> pp t2 
 
 instance Show CAtom where
     show = render . pp
