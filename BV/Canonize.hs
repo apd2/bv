@@ -5,7 +5,8 @@
 
 module BV.Canonize(termToCTerm,
                    atomToCAtom,
-                   ex) where
+                   ex,
+                   exTerm) where
 
 import Data.Bits
 import Data.List
@@ -104,7 +105,7 @@ groupSum ts = case ts'' ++ tconst of
           (consts, ts') = partition termIsConst ts
           tconst = case (sum $ map (cVal . (\(TConst c) -> c)) consts) `mod2` w of
                         0 -> []
-                        c -> [TConst $ mkConst c w]
+                        c -> [tConst c w]
           ts'' = groupSum' ts'
 
 
@@ -185,7 +186,7 @@ termToCTerm' (TMul c t w)      = ctermMul (termToCTerm' t) c w
 ------------------------------------------------------------
 
 atomToCAtom :: Atom -> Either Bool CAtom
-atomToCAtom (Atom rel t1 t2) = mkCAtom rel ct1 ct2
+atomToCAtom a@(Atom rel t1 t2) = assert (width t1 == width t2) ("atomToCAtom: width mismatch: " ++ show a) $ mkCAtom rel ct1 ct2
     where ct1 = termToCTerm t1
           ct2 = termToCTerm t2
 
@@ -212,10 +213,16 @@ catomSubst v t (CAtom rel t1 t2) = mkCAtom rel (ctermSubst v t t1) (ctermSubst v
 -- Existential quantification
 ------------------------------------------------------------
 
+exTerm :: [Var] -> [Atom] -> Maybe (Either Bool [CAtom])
+exTerm vs as = 
+   case catomsConj (map atomToCAtom as) of
+        Left b    -> Just $ Left b
+        Right cas -> {-trace ("exTerm: cas=" ++ show cas) $-} ex vs cas
+
 ex :: [Var] -> [CAtom] -> Maybe (Either Bool [CAtom])
 ex vs as = case catomsSliceVars as vs of
                 (Left b, _)      -> Just (Left b)
-                (Right as', vs') -> ex' vs' as'
+                (Right as', vs') -> {-trace ("ex: sliced: " ++ show as' ++ " q:" ++ show vs') $-} ex' vs' as'
 
 ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [CAtom])
 ex' []     as = Just $ Right as
@@ -235,14 +242,14 @@ catomsSliceVars as []     = (Right as,[])
 catomsSliceVars as (v:vs) = case eas' of
                                  Left b  -> (Left b, (map (v,) ss))
                                  Right _ -> (as'', (map (v,) ss) ++ vs')
-    where (eas', ss)   = catomsSliceVar as v
+    where (eas', ss)  = catomsSliceVar as v
           (as'', vs') = catomsSliceVars (fromRight eas') vs
 
 catomsSliceVar :: [CAtom] -> Var -> (Either Bool [CAtom], [(Int,Int)])
 catomsSliceVar as v = ( applySubst as substs
                       , nub $ concatMap snd ss')
     where ss   = concatMap (catomFindVarSlices v) as
-          ends = nub $ sort $ concatMap (\(l,h) -> [l,h]) ss
+          ends = (\(ls, hs) -> (sort $ nub ls, sort $ nub hs)) $ unzip ss
           ss'  = zip ss $ map (partitionSlice ends) ss
           substs = map (\((l,h), subs) -> ((l,h), CTerm (addSlices subs) $ zero (h - l + 1)) ) ss'
 
@@ -252,8 +259,8 @@ catomsSliceVar as v = ( applySubst as substs
           applySubst :: [CAtom] -> [((Int,Int), CTerm)] -> Either Bool [CAtom]
           applySubst as0 [] = Right as0
           applySubst as0 ((s, ct):subs) = case catomsConj $ map (catomSubst (v,s) ct) as0 of
-                                                   Left b    -> Left b
-                                                   Right _as -> applySubst _as subs
+                                               Left b    -> Left b
+                                               Right _as -> applySubst _as subs
 
 
 catomFindVarSlices :: Var -> CAtom -> [(Int,Int)]
@@ -264,9 +271,7 @@ catomsConj = (\as -> if' (null as) (Left True)                 $
                      if' (any (== Left False) as) (Left False) (Right $ map fromRight as))
              . filter (/= Left True)
 
--- ends is assumed to be sorted
-partitionSlice :: [Int] -> (Int,Int) -> [(Int,Int)]
-partitionSlice ends (l,h) = mkpairs $ filter (\i -> i>=l && i<=h) ends
-    where mkpairs []         = []
-          mkpairs [_]        = []
-          mkpairs (i1:i2:is) = (i1,i2) : mkpairs (i2:is)
+partitionSlice :: ([Int], [Int]) -> (Int,Int) -> [(Int,Int)]
+partitionSlice (ls,hs) (l,h) = zip ls' hs'
+    where ls' = sort $ nub $ filter (\l' -> l' >= l && l' <= h) $ ls ++ map (1+) hs
+          hs' = sort $ nub $ filter (\h' -> h' >= l && h' <= h) $ hs ++ map (-1+) ls

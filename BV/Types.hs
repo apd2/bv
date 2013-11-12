@@ -12,6 +12,7 @@ module BV.Types(WithWidth(..),
                 termIsConst,
                 (.++),
                 (.:),
+                (.+),
                 (.==),
                 (./=),
                 (.<),
@@ -108,6 +109,9 @@ termIsConst _          = False
 
 (.:) :: Term -> (Int,Int) -> Term
 (.:) t s = TSlice t s
+
+(.+) :: Term -> Term -> Term
+(.+) t1 t2 = TPlus [t1,t2]
 
 -- Input atom
 data Atom = Atom Rel Term Term

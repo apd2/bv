@@ -3,6 +3,7 @@
 module BV.Util(mod2,
                zero,
                mkConst, 
+               tConst,
                constSlice,
                constMul,
                constInvert,
@@ -19,7 +20,7 @@ import Data.Bits
 import Data.List
 import Math.NumberTheory.Moduli
 
-import Util
+import Util hiding (trace)
 import BV.Types
 
 mod2 :: Integer -> Int -> Integer
@@ -46,6 +47,9 @@ constNeg (Const c w) = mkConst ((complement c) `mod2` w) w
 
 constConcat :: Const -> Const -> Const
 constConcat c1 c2 = mkConst (cVal c1 + (cVal c2 `shiftL` (width c1))) (width c1 + width c2)
+
+tConst :: Integer -> Int -> Term
+tConst i w = TConst $ mkConst i w
 
 -- assumes that terms have been gathered already
 ctermOrder :: CTerm -> CTerm
@@ -91,9 +95,9 @@ catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 -- Solve atom wrt given variable
 catomSolve :: (Var, (Int,Int)) -> CAtom -> Maybe CTerm
-catomSolve v (CAtom rel ct1 ct2) | rel /= Eq  = Nothing
-                                 | null lhs   = Nothing
-                                 | otherwise  = fmap (\inv -> ctermMul (ctermUMinus $ CTerm rhs ctConst) inv w) minv
+catomSolve v a@(CAtom rel ct1 ct2) | rel /= Eq  = Nothing
+                                   | null lhs   = Nothing
+                                   | otherwise  = fmap (\inv -> ctermMul (ctermUMinus $ CTerm rhs ctConst) inv w) minv
     where CTerm{..} = ctermPlus [ct1, ctermUMinus ct2]
           (lhs, rhs) = partition ((== v) . snd) ctVars
           [(i,_)] = lhs
