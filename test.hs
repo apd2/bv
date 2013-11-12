@@ -25,6 +25,12 @@ terms = [ x16 .++ y16
         , (x16 .++ y16 .++ z16) .: (8,39)
         ]
 
+atoms = [ x16 .== y16 
+        , y16 .== x16 
+        , (TConst $ zero 16) .== x16 
+        , (TConst $ zero 16) .== (TNeg $ (x16 .++ y16) .: (8,23))
+        ]
+
 main :: IO ()
 main = do
     let cts = map termToCTerm terms
@@ -32,3 +38,9 @@ main = do
              ( intercalate "\n" 
              $ map (\(t,ct) -> show t ++ " --> " ++ show ct) 
              $ zip terms cts)
+
+    let cas = map atomToCAtom atoms
+    putStrLn $ "\natomToCAtom test\n" ++
+             ( intercalate "\n" 
+             $ map (\(a,ca) -> show a ++ " --> " ++ show ca) 
+             $ zip atoms cas)

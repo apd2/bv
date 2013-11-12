@@ -11,7 +11,11 @@ module BV.Types(WithWidth(..),
                 ppSlice,
                 termIsConst,
                 (.++),
-                (.:)) where
+                (.:),
+                (.==),
+                (./=),
+                (.<),
+                (.<=)) where
 
 import Text.PrettyPrint
 
@@ -113,6 +117,19 @@ instance PP Atom where
 
 instance Show Atom where
     show = render . pp
+
+(.==) :: Term -> Term -> Atom
+(.==) t1 t2 = Atom Eq t1 t2
+
+(./=) :: Term -> Term -> Atom
+(./=) t1 t2 = Atom Neq t1 t2
+
+(.<) :: Term -> Term -> Atom
+(.<) t1 t2 = Atom Lt t1 t2
+
+(.<=) :: Term -> Term -> Atom
+(.<=) t1 t2 = Atom Lte t1 t2
+
 
 -- Term in canonical form (linear combination of vars)
 data CTerm = CTerm { ctVars  :: [(Integer,(Var,(Int,Int)))]
