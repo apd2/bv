@@ -152,17 +152,30 @@ termToCTerm' (TSlice t (l,h)) = {-trace ("termToCTerm' " ++ show (TSlice t (l,h)
                    (CTerm (map (\(i,(v,(l',_))) -> (i `mod2` w, (v,(l',l'+h)))) ts) $ constSlice (cVal c) (l,h)) $
                if' (length ts == 1 && cVal c == 0 && (fst $ head ts) == 1)
                    (CTerm [(1,(fst $ snd $ head ts,(l,h)))] $ zero w)
-                   (error $ "BV.termCanonize: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
+                   (error $ "BV.termToCTerm: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
 termToCTerm' (TConcat ts)      = ctermPlus ts''
     where ts' = map termToCTerm' ts
           w = sum $ map width ts'
-          (_, ts'') = foldl' (\(off, cts) ct -> (off+width ct, ctermMul ct (1 `shiftL` off) w:cts)) 
+          (_, ts'') = foldl' (\(off, cts) ct@CTerm{..} -> 
+                               let w' = width ct
+                                   ((i,(v,(l',h'))) :_) = ctVars
+                                   ct' = if' (length ctVars == 0) 
+                                             (ctermMul ct (1 `shiftL` off) w) $
+                                         if' (length ctVars == 1 && cVal ctConst == 0 && h' - l' < width ctConst) 
+                                             (ctermMul ct (1 `shiftL` off) w) $
+                                         if' (length ctVars == 1 && 
+                                              h' - l' < width ctConst && 
+                                              i == (-1) `mod2` w' && 
+                                              ctConst == mkConst (-1) w')
+                                             (CTerm [(((-1)*(1 `shiftL` off)) `mod2` w, (v,(l',h')))] $ mkConst (-1* (1 + ((-1) `mod2` off) + (((-1) `mod2` (w-off-w')) `shiftL` (off+w')))) w)
+                                             (error $ "termToCTerm: cannot handle " ++ show (TConcat ts))
+                               in (off+w', ct':cts)) 
                              (0,[]) ts'
 
 termToCTerm' (TNeg t)          = {-trace ("termToCTerm' " ++ show (TNeg t) ++ "=" ++ show ct')-} ct'
     where ct = termToCTerm' t
           w = width ct
-          ct' = ctermPlus [(ctermMul ct (-1) w), CTerm [] (mkConst (-1) w)]
+          ct' = ctermPlus [ctermMul ct (-1) w, CTerm [] (mkConst (-1) w)]
 
 termToCTerm' (TPlus ts)        = ctermPlus $ map termToCTerm' ts
 termToCTerm' (TMul c t w)      = ctermMul (termToCTerm' t) c w
