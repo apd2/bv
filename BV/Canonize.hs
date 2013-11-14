@@ -186,9 +186,12 @@ termToCTerm' (TMul c t w)      = ctermMul (termToCTerm' t) c w
 ------------------------------------------------------------
 
 atomToCAtom :: Atom -> Either Bool CAtom
-atomToCAtom a@(Atom rel t1 t2) = assert (width t1 == width t2) ("atomToCAtom: width mismatch: " ++ show a) $ mkCAtom rel ct1 ct2
+atomToCAtom a@(Atom rel t1 t2) = assert (width t1 == width t2) ("atomToCAtom: width mismatch: " ++ show a) $ mkCAtom rel' ct1 ct2'
     where ct1 = termToCTerm t1
           ct2 = termToCTerm t2
+          (ct2', rel') = if width ct1 == 1 && rel == Neq
+                            then (termToCTerm $ TNeg t2, Eq)
+                            else (ct2, rel)
 
 -- Move the first variable (in var ordering) to the left and
 -- try to solve the equation wrt this var.
@@ -225,11 +228,19 @@ ex vs as = case catomsSliceVars as vs of
                 (Right as', vs') -> {-trace ("ex: sliced: " ++ show as' ++ " q:" ++ show vs') $-} ex' vs' as'
 
 ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [CAtom])
-ex' []     as = Just $ Right as
-ex' (v:vs) as = case ex1 as v of
-                     Nothing          -> Nothing
-                     Just (Left b)    -> Just (Left b)
-                     Just (Right as') -> ex' vs as'
+ex' [] as = Just $ Right as
+ex' vs as = -- find a variable that can be quantified away
+            case findIndex isJust quant_res of
+                 Nothing -> -- if all remaining variables occur only in inequalities, 
+                            -- then return remaining atoms (without quantified variables)
+                            let (withoutvs, withvs) = partition (\(CAtom _ t1 t2) -> null $ intersect vs (map snd $ (ctVars t1 ++ ctVars t2))) as in
+                            if all (\(CAtom r _ _) -> r == Neq) withvs
+                               then if' (null withoutvs) (Just $ Left True) (Just $ Right withoutvs)
+                               else Nothing
+                 Just i  -> case quant_res !! i of
+                                 Just (Left b)    -> Just (Left b)
+                                 Just (Right as') -> ex' (take i vs ++ drop (i+1) vs) as'
+    where quant_res = map (ex1 as) vs
 
 ex1 :: [CAtom] -> (Var, (Int,Int)) -> Maybe (Either Bool [CAtom])
 ex1 as v = fmap (\i -> catomsConj $ map (catomSubst v (fromJust $ sols !! i)) $ take i as ++ drop (i+1) as)
