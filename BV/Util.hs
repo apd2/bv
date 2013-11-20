@@ -4,6 +4,7 @@ module BV.Util(mod2,
                zero,
                mkConst, 
                tConst,
+               termExt,
                constSlice,
                constMul,
                constInvert,
@@ -51,6 +52,10 @@ constConcat c1 c2 = mkConst (cVal c1 + (cVal c2 `shiftL` (width c1))) (width c1 
 tConst :: Integer -> Int -> Term
 tConst i w = TConst $ mkConst i w
 
+termExt :: Term -> Int -> Term
+termExt t w | width t >= w = t
+            | otherwise    = TConcat [t, tConst 0 (w - width t)]
+
 -- assumes that terms have been gathered already
 ctermOrder :: CTerm -> CTerm
 ctermOrder (CTerm ts c) = CTerm (sortBy (\t1 t2 -> compare (snd t1) (snd t2)) ts) c
@@ -95,9 +100,9 @@ catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 -- Solve atom wrt given variable
 catomSolve :: (Var, (Int,Int)) -> CAtom -> Maybe CTerm
-catomSolve v a@(CAtom rel ct1 ct2) | rel /= Eq  = Nothing
-                                   | null lhs   = Nothing
-                                   | otherwise  = fmap (\inv -> ctermMul (ctermUMinus $ CTerm rhs ctConst) inv w) minv
+catomSolve v (CAtom rel ct1 ct2) | rel /= Eq  = Nothing
+                                 | null lhs   = Nothing
+                                 | otherwise  = fmap (\inv -> ctermMul (ctermUMinus $ CTerm rhs ctConst) inv w) minv
     where CTerm{..} = ctermPlus [ct1, ctermUMinus ct2]
           (lhs, rhs) = partition ((== v) . snd) ctVars
           [(i,_)] = lhs

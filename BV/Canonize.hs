@@ -186,11 +186,14 @@ termToCTerm' (TMul c t w)      = ctermMul (termToCTerm' t) c w
 ------------------------------------------------------------
 
 atomToCAtom :: Atom -> Either Bool CAtom
-atomToCAtom a@(Atom rel t1 t2) = assert (width t1 == width t2) ("atomToCAtom: width mismatch: " ++ show a) $ mkCAtom rel' ct1 ct2'
-    where ct1 = termToCTerm t1
-          ct2 = termToCTerm t2
+atomToCAtom (Atom rel t1 t2) = mkCAtom rel' ct1 ct2'
+    where w = max (width t1) (width t2)
+          t1' = termExt t1 w
+          t2' = termExt t2 w
+          ct1 = termToCTerm t1'
+          ct2 = termToCTerm t2'
           (ct2', rel') = if width ct1 == 1 && rel == Neq
-                            then (termToCTerm $ TNeg t2, Eq)
+                            then (termToCTerm $ TNeg t2', Eq)
                             else (ct2, rel)
 
 -- Move the first variable (in var ordering) to the left and
