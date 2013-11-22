@@ -19,7 +19,7 @@ y{16} == x{16} --> Right x{16} == y{16}
 
 existential quantification test
 Ex x{16}.x{16} == y{16} = Just (Left True)
-Ex x{16}.x{16} != y{16} = Nothing
+Ex x{16}.x{16} != y{16} = Just (Left True)
 Ex x{16}.x{16} != y{16} /\ x{16} == z{16} = Just (Right [y{16} != z{16}])
 Ex x{16}.x{16}[0:7] == (y{16}+4{16})[0:7] /\ x{16} == (z{16}+8{16}) = Nothing
 Ex x{16}.x{16} == (y{16}+4{16}) /\ x{16} == (z{16}+8{16}) = Just (Right [y{16} == z{16}+4{16}])

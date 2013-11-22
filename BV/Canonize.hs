@@ -138,48 +138,49 @@ groupTerm t ts = (grouped, rest)
 -----------------------------------------------------------------
 
 termToCTerm :: Term -> CTerm
-termToCTerm t = {-trace ("termToCTerm: t=" ++ show t ++ " simplified=" ++ show tsimp) $-} termToCTerm' tsimp
+termToCTerm t = {-trace ("termToCTerm: t=" ++ show t ++ " simplified=" ++ show tsimp) $-} termToCTerm' tsimp (width tsimp)
     where tsimp = termSimplify $ termValidate t
 
-termToCTerm' :: Term -> CTerm
-termToCTerm' (TConst c)       = CTerm [] c
-termToCTerm' (TVar v)         = CTerm [(1,(v,(0, width v - 1)))] (zero $ width v)
-termToCTerm' (TSlice t (l,h)) = {-trace ("termToCTerm' " ++ show (TSlice t (l,h)) ++ "=" ++ show t' ++ "(" ++ show (width t') ++ ")")-} t'
-    where w = h - l + 1
-          ct@(CTerm ts c) = termToCTerm' t
+-- The second argument specifies width of the result.  It is less than or equal
+-- to width of the first argument.  
+termToCTerm' :: Term -> Int -> CTerm
+termToCTerm' (TConst c)       u = CTerm [] $ constSlice (cVal c) (0, u - 1)
+termToCTerm' (TVar v)         u = CTerm [(1,(v,(0,u-1)))] $ zero u
+termToCTerm' (TSlice t (l,hh)) u = {-trace ("termToCTerm' " ++ show (TSlice t (l,hh)) ++ "=" ++ show t' ++ "(" ++ show (width t') ++ ")")-} t'
+    where h = l + u - 1
+          ct@(CTerm ts c) = termToCTerm' t (h+1)
           t' = if' (null ts) 
                    (CTerm [] $ constSlice (cVal c) (l,h))                                   $
                if' (l == 0)
-                   (CTerm (map (\(i,(v,(l',_))) -> (i `mod2` w, (v,(l',l'+h)))) ts) $ constSlice (cVal c) (l,h)) $
+                   (CTerm (map (\(i,(v,(l',_h))) -> (i `mod2` u, (v,(l',min _h (l'+h))))) ts) $ constSlice (cVal c) (l,h)) $
                if' (length ts == 1 && cVal c == 0 && (fst $ head ts) == 1)
-                   (CTerm [(1,(fst $ snd $ head ts,(l,h)))] $ zero w)
+                   (let [(_, (v,(_l,_h)))] = ts in
+                    CTerm [(1,(v,(l+_l,min _h (l+_l+u-1))))] $ zero u)
                    (error $ "BV.termToCTerm: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
-termToCTerm' (TConcat ts)      = ctermPlus ts''
-    where ts' = map termToCTerm' ts
-          w = sum $ map width ts'
-          (_, ts'') = foldl' (\(off, cts) ct@CTerm{..} -> 
-                               let w' = width ct
+termToCTerm' (TConcat ts)     u = ctermPlus ts''
+    where (_, ts'') = foldl' (\(off, cts) t -> 
+                               let ct@CTerm{..} = termToCTerm' t (min (width t) (u-off))
+                                   w' = width ct
                                    ((i,(v,(l',h'))) :_) = ctVars
                                    ct' = if' (length ctVars == 0) 
-                                             (ctermMul ct (1 `shiftL` off) w) $
+                                             (ctermMul ct (1 `shiftL` off) u) $
                                          if' (length ctVars == 1 && cVal ctConst == 0 && h' - l' < width ctConst) 
-                                             (ctermMul ct (1 `shiftL` off) w) $
+                                             (ctermMul ct (1 `shiftL` off) u) $
                                          if' (length ctVars == 1 && 
                                               h' - l' < width ctConst && 
                                               i == (-1) `mod2` w' && 
                                               ctConst == mkConst (-1) w')
-                                             (CTerm [(((-1)*(1 `shiftL` off)) `mod2` w, (v,(l',h')))] $ mkConst (-1* (1 + ((-1) `mod2` off) + (((-1) `mod2` (w-off-w')) `shiftL` (off+w')))) w)
+                                             (CTerm [(((-1)*(1 `shiftL` off)) `mod2` u, (v,(l',h')))] $ mkConst (-1* (1 + ((-1) `mod2` off) + (((-1) `mod2` (u-off-w')) `shiftL` (off+w')))) u)
                                              (error $ "termToCTerm: cannot handle " ++ show (TConcat ts))
-                               in (off+w', ct':cts)) 
-                             (0,[]) ts'
+                               in if' (off >= u) (off+w', cts) (off+w', ct':cts))
+                             (0,[]) ts
 
-termToCTerm' (TNeg t)          = {-trace ("termToCTerm' " ++ show (TNeg t) ++ "=" ++ show ct')-} ct'
-    where ct = termToCTerm' t
-          w = width ct
-          ct' = ctermPlus [ctermMul ct (-1) w, CTerm [] (mkConst (-1) w)]
+termToCTerm' (TNeg t)         u = {-trace ("termToCTerm' " ++ show (TNeg t) ++ "=" ++ show ct')-} ct'
+    where ct = termToCTerm' t u
+          ct' = ctermPlus [ctermMul ct (-1) u, CTerm [] (mkConst (-1) u)]
 
-termToCTerm' (TPlus ts)        = ctermPlus $ map termToCTerm' ts
-termToCTerm' (TMul c t w)      = ctermMul (termToCTerm' t) c w
+termToCTerm' (TPlus ts)       u = ctermPlus $ map (\t -> termToCTerm' t u) ts
+termToCTerm' (TMul c t w)     u = ctermMul (termToCTerm' t (minimum [u,w,width t])) c u
 
 ------------------------------------------------------------
 -- Atom canonization
