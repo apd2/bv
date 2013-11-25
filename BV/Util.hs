@@ -96,6 +96,12 @@ catom rel (CTerm [] c1) (CTerm [] c2) = Left $
          Neq -> cVal c1 /= cVal c2
          Lt  -> cVal c1 <  cVal c2
          Lte -> cVal c1 <= cVal c2
+catom rel ct1 ct2 | ct1 == ct2        = Left $
+     case rel of
+         Eq  -> True
+         Neq -> False
+         Lt  -> False
+         Lte -> True  
 catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 -- Solve atom wrt given variable
