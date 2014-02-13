@@ -31,7 +31,7 @@ data Var = Var { vName  :: String
                } deriving (Eq, Ord)
 
 instance PP Var where
-    pp Var{..} = pp vName <> (braces $ pp vWidth)
+    pp Var{..} = pp vName -- <> (braces $ pp vWidth)
 
 instance Show Var where
     show = render . pp
@@ -141,14 +141,16 @@ data CTerm = CTerm { ctVars  :: [(Integer,(Var,(Int,Int)))]
                    } deriving (Eq,Ord)
 
 instance PP CTerm where
-    pp (CTerm [] c)             = pp c
-    pp (CTerm ts c) | cVal c == 0 = tstxt
-                    | otherwise   = tstxt <> char '+' <> pp c
-                    where tstxt = hcat 
-                                  $ punctuate (char '+') 
-                                  $ map (\(m,(v,(l,h))) -> (if' (m==1) empty (pp m <> char '*')) 
-                                                           <> pp v
-                                                           <> if' (l==0 && h==width v - 1) empty (ppSlice (l,h))) ts
+    pp ct = pp' ct <> (braces $ int $ width ct)
+        where 
+        pp' (CTerm [] c)             = pp c
+        pp' (CTerm ts c) | cVal c == 0 = tstxt
+                         | otherwise   = tstxt <> char '+' <> pp c
+                         where tstxt = hcat 
+                                       $ punctuate (char '+') 
+                                       $ map (\(m,(v,(l,h))) -> (if' (m==1) empty (pp m <> char '*')) 
+                                                                <> pp v
+                                                                <> if' (l==0 && h==width v - 1) empty (ppSlice (l,h))) ts
 
 instance Show CTerm where
     show = render . pp
@@ -158,7 +160,13 @@ instance WithWidth CTerm where
 
 -- Atom in canonical form
 -- Truly canonical form requires that the LHS CTerm is a naked variable
-data CAtom = CAtom Rel CTerm CTerm deriving (Eq, Ord)
+data CAtom = CAtom { catomRel :: Rel 
+                   , catomLHS :: CTerm 
+                   , catomRHS :: CTerm
+                   } deriving (Eq, Ord)
+
+instance WithWidth CAtom where
+    width = width . catomLHS
 
 instance PP CAtom where
     pp (CAtom r t1 t2) = pp t1 <+> pp r <+> pp t2 

@@ -148,16 +148,10 @@ termToCTerm' (TConst c)       u = CTerm [] $ constSlice (cVal c) (0, u - 1)
 termToCTerm' (TVar v)         u = CTerm [(1,(v,(0,u-1)))] $ zero u
 termToCTerm' (TSlice t (l,hh)) u = {-trace ("termToCTerm' " ++ show (TSlice t (l,hh)) ++ "=" ++ show t' ++ "(" ++ show (width t') ++ ")")-} t'
     where h = l + u - 1
-          ct@(CTerm ts c) = termToCTerm' t (h+1)
-          t' = if' (null ts) 
-                   (CTerm [] $ constSlice (cVal c) (l,h))                                   $
-               if' (l == 0)
-                   (CTerm (map (\(i,(v,(l',_h))) -> (i `mod2` u, (v,(l',min _h (l'+h))))) ts) $ constSlice (cVal c) (l,h)) $
-               if' (length ts == 1 && cVal c == 0 && (fst $ head ts) == 1)
-                   (let [(_, (v,(_l,_h)))] = ts in
-                    CTerm [(1,(v,(l+_l,min _h (l+_l+u-1))))] $ zero u)
-                   (error $ "BV.termToCTerm: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
-termToCTerm' (TConcat ts)     u = ctermPlus ts''
+          ct = termToCTerm' t (h+1)
+          t' = fromMaybe (error $ "BV.termToCTerm: cannot handle slice [" ++ show l ++ ":" ++ show h ++ "] of term " ++ show ct)
+                         (ctermSlice ct (l,h))
+termToCTerm' (TConcat ts)     u = ctermPlus ts'' u
     where (_, ts'') = foldl' (\(off, cts) t -> 
                                let ct@CTerm{..} = termToCTerm' t (min (width t) (u-off))
                                    w' = width ct
@@ -177,9 +171,9 @@ termToCTerm' (TConcat ts)     u = ctermPlus ts''
 
 termToCTerm' (TNeg t)         u = {-trace ("termToCTerm' " ++ show (TNeg t) ++ "=" ++ show ct')-} ct'
     where ct = termToCTerm' t u
-          ct' = ctermPlus [ctermMul ct (-1) u, CTerm [] (mkConst (-1) u)]
+          ct' = ctermPlus [ctermMul ct (-1) u, CTerm [] (mkConst (-1) u)] u
 
-termToCTerm' (TPlus ts)       u = ctermPlus $ map (\t -> termToCTerm' t u) ts
+termToCTerm' (TPlus ts)       u = ctermPlus (map (\t -> termToCTerm' t u) ts) u
 termToCTerm' (TMul c t w)     u = ctermMul (termToCTerm' t (minimum [u,w,width t])) c u
 
 ------------------------------------------------------------
@@ -197,22 +191,6 @@ atomToCAtom (Atom rel t1 t2) = mkCAtom rel' ct1 ct2'
                             then (termToCTerm $ TNeg t2', Eq)
                             else (ct2, rel)
 
--- Move the first variable (in var ordering) to the left and
--- try to solve the equation wrt this var.
-mkCAtom :: Rel -> CTerm -> CTerm -> Either Bool CAtom
-mkCAtom rel ct1 ct2 | elem rel [Eq, Neq] = 
-    if null ctVars 
-       then catom rel ct (CTerm [] $ zero $ width ct)
-       else Right $ catomInSolvedForm rel (head ctVars) (ctermUMinus $ CTerm (tail ctVars) ctConst)
-                    | otherwise          = catom rel ct1 ct2
-    where ct@CTerm{..} = ctermPlus [ct1, ctermUMinus ct2]
-          
-catomInSolvedForm :: Rel -> (Integer, (Var,(Int,Int))) -> CTerm -> CAtom
-catomInSolvedForm rel (i, v) ct = maybe (CAtom rel (CTerm [(i,v)] (zero $ width ct)) ct) 
-                                        (\inv -> CAtom rel (CTerm [(1,v)] (zero $ width ct)) (ctermMul ct inv w))
-                                        (constInvert i w)
-    where w = width ct
-
 catomSubst :: (Var,(Int,Int)) -> CTerm -> CAtom -> Either Bool CAtom
 catomSubst v t (CAtom rel t1 t2) = mkCAtom rel (ctermSubst v t t1) (ctermSubst v t t2)
 
@@ -221,15 +199,16 @@ catomSubst v t (CAtom rel t1 t2) = mkCAtom rel (ctermSubst v t t1) (ctermSubst v
 ------------------------------------------------------------
 
 exTerm :: [Var] -> [Atom] -> Maybe (Either Bool [CAtom])
-exTerm vs as = 
+exTerm vs as = trace ("exTerm " ++ show vs ++ " " ++ show as) $
    case catomsConj (map atomToCAtom as) of
         Left b    -> Just $ Left b
-        Right cas -> {-trace ("exTerm: cas=" ++ show cas) $-} ex vs cas
+        Right cas -> trace ("exTerm: " ++ show vs ++ " " ++ show as ++ " = " ++ show res) res
+                     where res = ex vs cas
 
 ex :: [Var] -> [CAtom] -> Maybe (Either Bool [CAtom])
 ex vs as = case catomsSliceVars as vs of
                 (Left b, _)      -> Just (Left b)
-                (Right as', vs') -> {-trace ("ex: sliced: " ++ show as' ++ " q:" ++ show vs') $-} ex' vs' as'
+                (Right as', vs') -> trace ("ex: sliced: " ++ show as' ++ " q:" ++ show vs') $ ex' vs' as'
 
 ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [CAtom])
 ex' [] as = Just $ Right as
@@ -243,13 +222,21 @@ ex' vs as = -- find a variable that can be quantified away
                                else Nothing
                  Just i  -> case quant_res !! i of
                                  Just (Left b)    -> Just (Left b)
-                                 Just (Right as') -> ex' (take i vs ++ drop (i+1) vs) as'
+                                 Just (Right as') -> trace ("quantifying " ++ (show $ vs !! i) ++ " -> " ++ show as') $
+                                                     ex' (take i vs ++ drop (i+1) vs) as'
     where quant_res = map (ex1 as) vs
 
 ex1 :: [CAtom] -> (Var, (Int,Int)) -> Maybe (Either Bool [CAtom])
-ex1 as v = fmap (\i -> catomsConj $ map (catomSubst v (fromJust $ sols !! i)) $ take i as ++ drop (i+1) as)
-           $ findIndex isJust sols
-    where sols = map (catomSolve v) as
+ex1 as v | null withv                      = Just $ Right as
+         | any (== Just (Left False)) sols = Just $ Left False
+         | otherwise = 
+         fmap (\i -> let Just (Right (ct, catoms)) = sols !! i in
+                     catomsConj $ (map (catomSubst v ct) $ take i sorted ++ drop (i+1) sorted) ++ map Right catoms ++ map Right withoutv)
+              $ findIndex isJust sols
+    where (withv, withoutv) = partition (\CAtom{..} -> any (== v) $ map snd $ ctVars catomLHS ++ ctVars catomRHS) as
+          groups = reverse $ sortAndGroup width withv
+          sorted = concat groups
+          sols = map (catomSolve v) $ head groups
 
 -- Slice vars into non-overlapping ranges
 catomsSliceVars :: [CAtom] -> [Var] -> (Either Bool [CAtom], [(Var,(Int,Int))])
@@ -266,14 +253,14 @@ catomsSliceVar as v = ( applySubst as substs
     where ss   = concatMap (catomFindVarSlices v) as
           ends = (\(ls, hs) -> (sort $ nub ls, sort $ nub hs)) $ unzip ss
           ss'  = zip ss $ map (partitionSlice ends) ss
-          substs = map (\((l,h), subs) -> ((l,h), CTerm (addSlices subs) $ zero (h - l + 1)) ) ss'
+          substs = map (\((l,h), subs) -> ((l,h), addSlices subs)) ss'
 
           addSlices :: [(Int,Int)] -> [(Integer, (Var,(Int,Int)))]
           addSlices = fst . foldl' (\(vs, off) (l,h) -> ((1 `shiftL` off,(v,(l,h))):vs, off + (h - l + 1))) ([], 0)
 
-          applySubst :: [CAtom] -> [((Int,Int), CTerm)] -> Either Bool [CAtom]
+          applySubst :: [CAtom] -> [((Int,Int), [(Integer, (Var,(Int,Int)))])] -> Either Bool [CAtom]
           applySubst as0 [] = Right as0
-          applySubst as0 ((s, ct):subs) = case catomsConj $ map (catomSubst (v,s) ct) as0 of
+          applySubst as0 ((s, ct):subs) = case catomsConj $ map (\a -> catomSubst (v,s) (CTerm ct $ zero $ width a) a) as0 of
                                                Left b    -> Left b
                                                Right _as -> applySubst _as subs
 
