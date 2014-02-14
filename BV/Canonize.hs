@@ -12,6 +12,7 @@ import Data.Bits
 import Data.List
 import Data.Maybe
 import Debug.Trace
+import Control.Applicative hiding (Const)
 
 import Util hiding (trace)
 import TSLUtil hiding (assert)
@@ -198,32 +199,31 @@ catomSubst v t (CAtom rel t1 t2) = mkCAtom rel (ctermSubst v t t1) (ctermSubst v
 -- Existential quantification
 ------------------------------------------------------------
 
-exTerm :: [Var] -> [Atom] -> Maybe (Either Bool [CAtom])
+exTerm :: [Var] -> [Atom] -> Maybe (Either Bool [[CAtom]])
 exTerm vs as = trace ("exTerm " ++ show vs ++ " " ++ show as) $
    case catomsConj (map atomToCAtom as) of
         Left b    -> Just $ Left b
-        Right cas -> trace ("exTerm: " ++ show vs ++ " " ++ show as ++ " = " ++ show res) res
-                     where res = ex vs cas
+        Right cas -> ex vs cas
 
-ex :: [Var] -> [CAtom] -> Maybe (Either Bool [CAtom])
+ex :: [Var] -> [CAtom] -> Maybe (Either Bool [[CAtom]])
 ex vs as = case catomsSliceVars as vs of
                 (Left b, _)      -> Just (Left b)
-                (Right as', vs') -> trace ("ex: sliced: " ++ show as' ++ " q:" ++ show vs') $ ex' vs' as'
+                (Right as', vs') -> ex' vs' as'
 
-ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [CAtom])
-ex' [] as = Just $ Right as
+ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [[CAtom]])
+ex' [] as = Just $ Right [as]
 ex' vs as = -- find a variable that can be quantified away
             case findIndex isJust quant_res of
                  Nothing -> -- if all remaining variables occur only in inequalities, 
                             -- then return remaining atoms (without quantified variables)
                             let (withoutvs, withvs) = partition (\(CAtom _ t1 t2) -> null $ intersect vs (map snd $ (ctVars t1 ++ ctVars t2))) as in
                             if all (\(CAtom r _ _) -> r == Neq) withvs
-                               then if' (null withoutvs) (Just $ Left True) (Just $ Right withoutvs)
-                               else Nothing
-                 Just i  -> case quant_res !! i of
-                                 Just (Left b)    -> Just (Left b)
-                                 Just (Right as') -> trace ("quantifying " ++ (show $ vs !! i) ++ " -> " ++ show as') $
-                                                     ex' (take i vs ++ drop (i+1) vs) as'
+                               then if' (null withoutvs) (Just $ Left True) (Just $ Right [withoutvs])
+                               else exInequalities vs as
+                 Just i  -> case fromJust $ quant_res !! i of
+                                 Left b    -> Just (Left b)
+                                 Right as' -> trace ("quantifying " ++ (show $ vs !! i) ++ " -> " ++ show as') $
+                                              ex' (take i vs ++ drop (i+1) vs) as'
     where quant_res = map (ex1 as) vs
 
 ex1 :: [CAtom] -> (Var, (Int,Int)) -> Maybe (Either Bool [CAtom])
@@ -237,6 +237,63 @@ ex1 as v | null withv                      = Just $ Right as
           groups = reverse $ sortAndGroup width withv
           sorted = concat groups
           sols = map (catomSolve v) $ head groups
+
+-- All remaining variables aoocue in !=/</> atoms.
+-- Try to solve using heuristics
+exInequalities :: [(Var, (Int,Int))] -> [CAtom] -> Maybe (Either Bool [[CAtom]])
+exInequalities [] as = Just $ Right [as]
+exInequalities vs as = 
+    -- Find a variable that only occurs naked on the RHS or LHS side of inequalities
+    let isIn v CTerm{..} = (any ((==v) . snd) ctVars)
+        mv = find (\v -> all (\CAtom{..} -> (isNakedIn v catomLHS && (not $ isIn v catomRHS)) || 
+                                            (isNakedIn v catomRHS && (not $ isIn v catomLHS)) || 
+                                            (not $ isIn v catomLHS || isIn v catomRHS)) as) vs
+    in case mv of
+            Nothing -> Nothing
+            Just v  -> let vs' = filter (/= v) vs 
+                           ass = filter (/= Left False) $ map (eliminateNaked v) $ expandNeq v as in
+                       if' (null ass) (Just $ Left False) $
+                       if' (any (== Left True) ass) (Just $ Left True)
+                           (let sols = map (\(Right as') -> ex' vs' as') ass in
+                            if' (any isNothing sols) Nothing $
+                            if' (any (== Just (Left True)) sols) (Just $ Left True) $
+                            Just $ Right (concatMap (fromRight . fromJust) sols))
+
+isNakedIn :: (Var, (Int,Int)) -> CTerm -> Bool
+isNakedIn v CTerm{..} = (cVal ctConst == 0) && (length ctVars == 1) && (head ctVars == (1, v))
+
+expandNeq :: (Var,(Int,Int)) -> [CAtom] -> [[CAtom]]
+expandNeq _ []               = [[]]
+expandNeq v (a@CAtom{..}:as) = concatMap (\a_ -> map (a_:) as') a'
+    where asplit = map fromRight $ filter (/= Left False) [mkCAtom Lt catomRHS catomLHS, mkCAtom Lt catomLHS catomRHS]
+          a' = if' (catomRel == Neq && ((isNakedIn v catomLHS) || (isNakedIn v catomRHS))) 
+                   asplit [a]
+          as' = expandNeq v as
+
+-- Eliminate naked variable by constructing all pairwise combinations
+-- of terms t1 < t2 such that t1 < v < r2
+eliminateNaked :: (Var, (Int,Int)) -> [CAtom] -> Either Bool [CAtom]
+eliminateNaked v as = if' (any (== Left False) as') (Left False) 
+                          (Right $ other ++ map fromRight (filter (/= Left True) as'))
+    where
+    -- expand NEq atoms into pairs of inequalities
+    (lts, rts, other) = foldl' (\(lts', rts', other') a@CAtom{..} -> if' (isNakedIn v catomLHS) (lts', (catomRHS, catomRel):rts', other') $
+                                                                     if' (isNakedIn v catomRHS) ((catomLHS, catomRel): lts', rts', other')
+                                                                     (lts', rts', a:other'))
+                        ([],[],[]) as
+    -- in case v occurs on one side of inequalities only, just make sure that,
+    -- if the inequality is strict, then the term on the other side is not 
+    -- 0 (for v<t) or -1 (for t<v)
+    as' = if' (null lts) (mapMaybe (\(t,r) -> if' (r == Lte) Nothing (Just $ mkCAtom Lt (CTerm [] (zero $ width t)) t)) rts) $
+          if' (null rts) (mapMaybe (\(t,r) -> if' (r == Lte) Nothing (Just $ mkCAtom Lt t (CTerm [] $ mkConst (-1) $ width t))) lts) $
+          concat $ combine <$> lts <*> rts
+    combine (t1, Lt)  (t2, Lte) = [mkCAtom Lt  t1 t2]
+    combine (t1, Lte) (t2, Lt)  = [mkCAtom Lt  t1 t2]
+    combine (t1, Lte) (t2, Lte) = [mkCAtom Lte t1 t2]
+    combine (t1, Lt)  (t2, Lt)  = let w = width t1 in
+                                  [mkCAtom Lt (ctermPlus [t1, CTerm [] (mkConst 1 w)] w) t2, 
+                                   mkCAtom Lt t1 (CTerm [] $ mkConst (-1) w)]
+
 
 -- Slice vars into non-overlapping ranges
 catomsSliceVars :: [CAtom] -> [Var] -> (Either Bool [CAtom], [(Var,(Int,Int))])

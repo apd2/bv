@@ -5,6 +5,9 @@ module BV.Util(mod2,
                mkConst, 
                tConst,
                termExt,
+               varToHaskell,
+               termToHaskell,
+               atomToHaskell,
                constSlice,
                constMul,
                constInvert,
@@ -58,6 +61,28 @@ tConst i w = TConst $ mkConst i w
 termExt :: Term -> Int -> Term
 termExt t w | width t >= w = t
             | otherwise    = TConcat [t, tConst 0 (w - width t)]
+
+relToHaskell :: Rel -> String
+relToHaskell Eq  = ".=="
+relToHaskell Neq = "./="
+relToHaskell Lt  = ".<"
+relToHaskell Lte = ".<="
+
+varToHaskell :: Var -> String
+varToHaskell Var{..} = "Var \"" ++ vName ++ "\" " ++ (show vWidth)
+
+termToHaskell :: Term -> String
+termToHaskell (TConst c)       = "tConst " ++ (show $ cVal c) ++ " " ++ (show $ cWidth c)
+termToHaskell (TVar   v)       = "TVar (" ++ varToHaskell v ++ ")"
+termToHaskell (TSlice t (l,h)) = "(" ++ termToHaskell t ++ ") .: (" ++ show l ++ "," ++ show h ++ ")"
+termToHaskell (TConcat ts)     = "TConcat [" ++ (intercalate ", " $ map termToHaskell ts) ++ "]"
+termToHaskell (TNeg    t)      = "TNeg (" ++ termToHaskell t ++ ")"
+termToHaskell (TPlus   ts)     = "TPlus [" ++ (intercalate ", " $ map termToHaskell ts) ++ "]"
+termToHaskell (TMul    c t w)  = "TMul " ++ show c ++ "(" ++ termToHaskell t ++ ") " ++ show w
+
+atomToHaskell :: Atom -> String
+atomToHaskell (Atom r t1 t2) = "(" ++ termToHaskell t1 ++ ") " ++ relToHaskell r ++ " (" ++ termToHaskell t2 ++ ")"
+
 
 -- assumes that terms have been gathered already
 ctermOrder :: CTerm -> CTerm
@@ -126,11 +151,23 @@ catom rel (CTerm [] c1) (CTerm [] c2) = Left $
          Lt  -> cVal c1 <  cVal c2
          Lte -> cVal c1 <= cVal c2
 catom rel ct1 ct2 | ct1 == ct2        = Left $
-     case rel of
+    case rel of
          Eq  -> True
          Neq -> False
          Lt  -> False
          Lte -> True  
+catom rel ct1 ct2 | elem rel [Lt, Lte] && ctVars ct1 == ctVars ct2 = 
+    let cn1@(Const c1 _) = ctConst ct1
+        cn2@(Const c2 _) = ctConst ct2
+        w                = width ct1
+        vterm            = CTerm (ctVars ct1) $ zero w
+    in if' ((c1 == 0) && (cn2 == mkConst (-1) w)) (mkCAtom Eq  vterm (CTerm [] $ zero w)) $
+       if' ((c1 == 0) && (c2 == 1))               (mkCAtom Neq vterm (CTerm [] $ mkConst (-1) w)) $
+       if' (c1 == 0)                              (mkCAtom Lt  vterm (CTerm [] $ mkConst (-c2) w)) $
+       if' ((c2 == 0) && (cn1 == mkConst (-1) w)) (mkCAtom Neq vterm (CTerm [] $ zero w)) $
+       if' ((c2 == 0) && (c1 == 1))               (mkCAtom Eq  vterm (CTerm [] $ mkConst (-1) w)) $
+       if' (c2 == 0)                              (mkCAtom Lte (CTerm [] $ mkConst (-c1) w) vterm)
+           (Right $ CAtom rel ct1 ct2)
 catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 -- Move the first variable (in var ordering) to the left and

@@ -44,7 +44,9 @@ formulas = [ ([vx16], [x16 .== y16])
            , ([vx16], [x16 ./= y16, x16 .== z16])
            , ([vx16], [(x16 .: (0,7)) .== ((y16 .+ tConst 4 16) .: (0,7)), x16 .== (z16 .+ tConst 8 16)])
            , ([vx16], [x16 .== (y16 .+ tConst 4 16), x16 .== (z16 .+ tConst 8 16)])
+           , ([Var "$tmp1" 12], [(TVar (Var "$tmp1" 12)) .< (TVar (Var "used" 12)), (TPlus [TVar (Var "used" 12), tConst 4095 12]) .<= (TVar (Var "$tmp1" 12))])
            ]
+
 
 main :: IO ()
 main = do
