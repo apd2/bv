@@ -45,6 +45,8 @@ formulas = [ ([vx16], [x16 .== y16])
            , ([vx16], [(x16 .: (0,7)) .== ((y16 .+ tConst 4 16) .: (0,7)), x16 .== (z16 .+ tConst 8 16)])
            , ([vx16], [x16 .== (y16 .+ tConst 4 16), x16 .== (z16 .+ tConst 8 16)])
            , ([Var "$tmp1" 12], [(TVar (Var "$tmp1" 12)) .< (TVar (Var "used" 12)), (TPlus [TVar (Var "used" 12), tConst 4095 12]) .<= (TVar (Var "$tmp1" 12))])
+           , ([Var "$tmp1" 12], [(TVar (Var "$tmp1" 12)) ./= (tConst 1 12), (TPlus [TVar (Var "used" 12), tConst 4094 12]) .<= (TPlus [TVar (Var "$tmp1" 12), tConst 4095 12]), (TVar (Var "used" 12)) .<= (TVar (Var "$tmp1" 12))])
+           , ([Var "$tmp1" 12], [(TVar (Var "$tmp1" 12)) .== (tConst 0 12), (TPlus [TVar (Var "used" 12), tConst 4095 12]) .<= (TPlus [TVar (Var "$tmp1" 12), tConst 4095 12]), (TVar (Var "$tmp1" 12)) .< (TVar (Var "used" 12)), (TVar (Var "$tmp1" 12)) .== (TPlus [TVar (Var "used" 12), tConst 4095 12])])
            ]
 
 
@@ -56,7 +58,7 @@ main = do
              $ map (\(t,ct) -> show t ++ " --> " ++ show ct) 
              $ zip terms cts)
 
-    let cas = map atomToCAtom atoms
+    let cas = map atomToCAtoms atoms
     putStrLn $ "\natomToCAtom test\n" ++
              ( intercalate "\n" 
              $ map (\(a,ca) -> show a ++ " --> " ++ show ca) 

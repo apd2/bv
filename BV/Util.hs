@@ -13,8 +13,10 @@ module BV.Util(mod2,
                constInvert,
                constNeg,
                constConcat,
+               mkCAtomConj,
                mkCAtom,
                ctermPlus,
+               ctermMinus,
                ctermMul,
                ctermUMinus,
                ctermSlice,
@@ -24,6 +26,7 @@ module BV.Util(mod2,
 import Data.Bits
 import Data.List
 import Data.Maybe
+import Data.Tuple.HT
 import Math.NumberTheory.Moduli
 
 import Util hiding (trace)
@@ -102,6 +105,9 @@ ctermPlus' :: [CTerm] -> Int -> CTerm
 ctermPlus' ts w | any ((< w) . width) ts = error "BV.ctermPlus': cannot expand term width"
                 | otherwise = CTerm (concatMap ctVars ts) (mkConst (sum $ map (cVal . ctConst) ts) w)
 
+ctermMinus :: CTerm -> CTerm -> CTerm
+ctermMinus t1 t2 = ctermPlus [t1, ctermUMinus t2] (max (width t1) (width t2))
+
 ctermMul :: CTerm -> Integer -> Int -> CTerm
 ctermMul t c w = ctermOrder $ ctermGather $ ctermMul' t c w
 
@@ -155,7 +161,9 @@ catom rel ct1 ct2 | ct1 == ct2        = Left $
          Eq  -> True
          Neq -> False
          Lt  -> False
-         Lte -> True  
+         Lte -> True
+catom Lt  ct1 ct2 | (null $ ctVars ct2) && (cVal (ctConst ct2) == 0) = Left False
+catom Lt  ct1 ct2 | (null $ ctVars ct1) && ((ctConst ct1) == mkConst (-1) (width ct1)) = Left False
 catom rel ct1 ct2 | elem rel [Lt, Lte] && ctVars ct1 == ctVars ct2 = 
     let cn1@(Const c1 _) = ctConst ct1
         cn2@(Const c2 _) = ctConst ct2
@@ -169,6 +177,11 @@ catom rel ct1 ct2 | elem rel [Lt, Lte] && ctVars ct1 == ctVars ct2 =
        if' (c2 == 0)                              (mkCAtom Lte (CTerm [] $ mkConst (-c1) w) vterm)
            (Right $ CAtom rel ct1 ct2)
 catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
+
+mkCAtomConj :: [(Rel, CTerm, CTerm)] -> Maybe [CAtom]
+mkCAtomConj ins | any (== Left False) as = Nothing
+                | otherwise              = Just $ nub $ map fromRight as
+    where as = filter (/= (Left True)) $ map (uncurry3 mkCAtom) ins
 
 -- Move the first variable (in var ordering) to the left and
 -- try to solve the equation wrt this var.
