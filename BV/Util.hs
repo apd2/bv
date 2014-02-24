@@ -162,8 +162,6 @@ catom rel ct1 ct2 | ct1 == ct2        = Left $
          Neq -> False
          Lt  -> False
          Lte -> True
-catom Lt  ct1 ct2 | (null $ ctVars ct2) && (cVal (ctConst ct2) == 0) = Left False
-catom Lt  ct1 ct2 | (null $ ctVars ct1) && ((ctConst ct1) == mkConst (-1) (width ct1)) = Left False
 catom rel ct1 ct2 | elem rel [Lt, Lte] && ctVars ct1 == ctVars ct2 = 
     let cn1@(Const c1 _) = ctConst ct1
         cn2@(Const c2 _) = ctConst ct2
@@ -176,6 +174,13 @@ catom rel ct1 ct2 | elem rel [Lt, Lte] && ctVars ct1 == ctVars ct2 =
        if' ((c2 == 0) && (c1 == 1))               (mkCAtom Eq  vterm (CTerm [] $ mkConst (-1) w)) $
        if' (c2 == 0)                              (mkCAtom Lte (CTerm [] $ mkConst (-c1) w) vterm)
            (Right $ CAtom rel ct1 ct2)
+catom Lt  ct1 ct2 | (null $ ctVars ct2) && (cVal (ctConst ct2) == 0)                   = Left False
+catom Lt  ct1 ct2 | (null $ ctVars ct2) && (cVal (ctConst ct2) == 1)                   = mkCAtom Eq ct1 (CTerm [] $ zero $ width ct1)
+catom Lt  ct1 ct2 | (null $ ctVars ct1) && ((ctConst ct1) == mkConst (-1) (width ct1)) = Left False
+catom Lte ct1 ct2 | (null $ ctVars ct1) && ((ctConst ct1) == mkConst (-1) (width ct1)) = mkCAtom Eq ct1 ct2
+catom Lte ct1 ct2 | (null $ ctVars ct1) && (cVal (ctConst ct1) == 0)                   = Left True
+catom Lte ct1 ct2 | (null $ ctVars ct2) && (cVal (ctConst ct2) == 0)                   = mkCAtom Eq ct1 ct2
+catom Lte ct1 ct2 | (null $ ctVars ct2) && ((ctConst ct2) == mkConst (-1) (width ct2)) = Left True
 catom rel ct1 ct2 = Right $ CAtom rel ct1 ct2
 
 mkCAtomConj :: [(Rel, CTerm, CTerm)] -> Maybe [CAtom]
