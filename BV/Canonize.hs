@@ -77,6 +77,9 @@ termSimplify   (TSlice t (l,h)) | l == 0 && h == width t - 1 = termSimplify t
                                                    TConst c         -> TConst $ constSlice (cVal c) (l,h)
                                                    TConcat ts       -> termSimplify $ TConcat $ concatSlice ts (l,h)
                                                    TNeg t'          -> termSimplify $ TNeg $ TSlice t' (l,h)
+                                                   TPlus ts         -> if (l==0 && h < width (head ts) - 1)
+                                                                          then termSimplify $ TPlus $ map (\t' -> TSlice t' (l,h)) ts
+                                                                          else TSlice (TPlus ts) (l,h)
                                                    TSlice t' (l',_) -> termSimplify $ TSlice t' (l+l',h+l')
                                                    t'               -> TSlice t' (l,h)
 
@@ -304,12 +307,6 @@ stripConstantsR a | cVal c == 0  = [[a]]
           -- t < c /\ (t-c `r` x  \/ x < -c)
           mas2 = mkCAtomConj [(Lt, t, cterm), (r, ctermMinus t cterm, xterm)]
           mas3 = mkCAtomConj [(Lt, t, cterm), (Lt, xterm, ctermUMinus cterm)]
-          -- -c <= x /\ t < c /\ t-c `r` x
-          --mas1 = mkCAtomConj [(Lte, ctermUMinus cterm, xterm), (Lt, t, cterm), (r, ctermMinus t cterm, xterm)]
-          -- x < -c /\ t > c /\ t-c `r` x
-          --mas2 = mkCAtomConj [(Lt, xterm, ctermUMinus cterm),  (Lt, cterm, t), (r, ctermMinus t cterm, xterm)]
-          -- x < -c /\ t <= c 
-          --mas3 = mkCAtomConj [(Lt, xterm, ctermUMinus cterm),  (Lte, t, cterm)]
           CAtom r t (CTerm x c) = a
           xterm = CTerm x $ zero $ width a
           cterm = CTerm [] c
@@ -324,12 +321,6 @@ stripConstantsL a | cVal c == 0  = [[a]]
           -- t >= c /\ (-c <= x \/ x `r` t-c) 
           mas2 = mkCAtomConj [(Lte, cterm, t), (r, xterm, ctermMinus t cterm)]
           mas3 = mkCAtomConj [(Lte, cterm, t), (Lte, ctermUMinus cterm, xterm)]
-          -- x < -c /\ c <= t /\ x `r` t - c
-          --mas1 = mkCAtomConj [(Lt, xterm, ctermUMinus cterm), (Lte, cterm, t), (r, xterm, ctermMinus t cterm)]
-          -- -c <= x /\ t < c  /\ x `r` t - c
-          --mas2 = mkCAtomConj [(Lte, ctermUMinus cterm, xterm), (Lt, t, cterm), (r, xterm, ctermMinus t cterm)]
-          -- -c <= x /\ c <= t
-          --mas3 = mkCAtomConj [(Lte, ctermUMinus cterm, xterm), (Lte, cterm, t)]
           CAtom r (CTerm x c) t = a
           xterm = CTerm x $ zero $ width a
           cterm = CTerm [] c
