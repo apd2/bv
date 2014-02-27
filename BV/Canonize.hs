@@ -223,7 +223,8 @@ ex vs as = case catomsSliceVars as vs of
 
 ex' :: [(Var, (Int,Int))] -> [CAtom] -> Maybe [[CAtom]]
 ex' [] as = Just [as]
-ex' vs as = -- find a variable that can be quantified away
+ex' vs as = trace ("ex' " ++ show vs ++ " " ++ show as) $
+            -- find a variable that can be quantified away
             case findIndex isJust quant_res of
                  Nothing -> -- if all remaining variables occur only in inequalities, 
                             -- then return remaining atoms (without quantified variables)
@@ -248,19 +249,20 @@ ex1 as v | null withv                      = Just $ Right as
     where (withv, withoutv) = partition (\CAtom{..} -> any (== v) $ map snd $ ctVars catomLHS ++ ctVars catomRHS) as
           groups = reverse $ sortAndGroup width withv
           sorted = concat groups
-          sols = map (catomSolve v) $ head groups
+          sols = map (catomSolve v) sorted
 
 -- All remaining variables are in !=/</> atoms.
 -- Try to solve using heuristics
 exInequalities :: [(Var, (Int,Int))] -> [CAtom] -> Maybe [[CAtom]]
 exInequalities [] as = Just [as]
 exInequalities vs as = 
-    -- Find a variable that only occurs naked on the RHS or LHS side of inequalities
-    let isIn v CTerm{..} = (any ((==v) . snd) ctVars)
-        mv = find (\v -> all (\CAtom{..} -> (isNakedIn v catomLHS && (not $ isIn v catomRHS)) || 
-                                            (isNakedIn v catomRHS && (not $ isIn v catomLHS)) || 
+    -- Find a variable that only occurs on one side of inequalities
+    let isIn v CTerm{..}   = any ((==v) . snd) ctVars
+        mv = find (\v -> all (\CAtom{..} -> (isX1In v catomLHS && (not $ isIn v catomRHS)) || 
+                                            (isX1In v catomRHS && (not $ isIn v catomLHS)) || 
                                             (not $ isIn v catomLHS || isIn v catomRHS)) as) vs
-    in case mv of
+    in trace ("exInequalities " ++ show vs ++ " " ++ show as) $ 
+       case mv of
             Nothing -> Nothing
             Just v  -> let vs'  = filter (/= v) vs 
                            sols = filter (/= Just []) 
@@ -270,61 +272,66 @@ exInequalities vs as =
                                                             Left  False -> Just []
                                                             Left  True  -> Just [[]]
                                                             Right as''' -> ex' vs' as'''))
-                                  $ map nub 
-                                  $ concatMap (stripConstants v) 
-                                  $ expandNeq v as 
+                                  $ map nub
+                                  $ concatMap (simplifyLt v)
+                                  $ expandNeq v as
                        in if' (any (== Just [[]]) sols) (Just [[]]) $
                           if' (any isNothing sols)      Nothing     $
                           (Just (concatMap fromJust sols))
 
-isNakedIn :: (Var, (Int,Int)) -> CTerm -> Bool
-isNakedIn v CTerm{..} = (length ctVars == 1) && (head ctVars == (1, v))
+isX1In :: (Var, (Int,Int)) -> CTerm -> Bool
+isX1In v CTerm{..} = any (==(1,v)) ctVars
+
+--isNakedIn :: (Var, (Int,Int)) -> CTerm -> Bool
+--isNakedIn v CTerm{..} = (length ctVars == 1) && (head ctVars == (1, v))
 
 expandNeq :: (Var,(Int,Int)) -> [CAtom] -> [[CAtom]]
 expandNeq _ []               = [[]]
 expandNeq v (a@CAtom{..}:as) = concatMap (\a_ -> map (a_:) as') a'
     where asplit = map fromRight $ filter (/= Left False) [mkCAtom Lt catomRHS catomLHS, mkCAtom Lt catomLHS catomRHS]
-          a' = if' (catomRel == Neq && ((isNakedIn v catomLHS) || (isNakedIn v catomRHS))) 
+          a' = if' (catomRel == Neq && ((isX1In v catomLHS) || (isX1In v catomRHS))) 
                    asplit [a]
           as' = expandNeq v as
 
--- Transform inequalities in the form t < x + const into up to three systems of inequalities, 
--- where the constant is moved to the LHS.
-stripConstants :: (Var,(Int,Int)) -> [CAtom] -> [[CAtom]]
-stripConstants _ []               = [[]]
-stripConstants v (a@CAtom{..}:as) | (not $ isNakedIn v catomLHS || isNakedIn v catomRHS) = map (a:) as'
-                                  | isNakedIn v catomRHS                                 = concatMap (\as_ -> map (as_++) as') $ stripConstantsR a
-                                  | isNakedIn v catomLHS                                 = concatMap (\as_ -> map (as_++) as') $ stripConstantsL a
-    where as'  = stripConstants v as
+-- Transform inequalities in the form t < x + t' into up to three systems of inequalities, 
+-- where t1' is moved to the LHS.
+simplifyLt :: (Var,(Int,Int)) -> [CAtom] -> [[CAtom]]
+simplifyLt _ []               = [[]]
+simplifyLt v (a@CAtom{..}:as) | (not $ isX1In v catomLHS || isX1In v catomRHS) = map (a:) as'
+                              | isX1In v catomRHS                              = concatMap (\as_ -> map (as_++) as') $ simplifyLtR [(1,v)] a
+                              | isX1In v catomLHS                              = concatMap (\as_ -> map (as_++) as') $ simplifyLtL [(1,v)] a
+    where as'  = simplifyLt v as
           w    = width catomRHS
 
 -- The input atom has the variable to be stripped on the RHS
-stripConstantsR :: CAtom -> [[CAtom]]
-stripConstantsR a | cVal c == 0  = [[a]]
-                  | otherwise    = {-trace ("stripConstantsR " ++ show a ++ " = " ++ show res)-} res
-    where -- c <= t /\ t-c `r` x /\ x < -c
-          mas1 = mkCAtomConj [(Lte, cterm, t), (r, ctermMinus t cterm, xterm), (Lt, xterm, ctermUMinus cterm)]
-          -- t < c /\ (t-c `r` x  \/ x < -c)
-          mas2 = mkCAtomConj [(Lt, t, cterm), (r, ctermMinus t cterm, xterm)]
-          mas3 = mkCAtomConj [(Lt, t, cterm), (Lt, xterm, ctermUMinus cterm)]
-          CAtom r t (CTerm x c) = a
-          xterm = CTerm x $ zero $ width a
-          cterm = CTerm [] c
+simplifyLtR :: [(Integer, (Var,(Int,Int)))] -> CAtom -> [[CAtom]]
+simplifyLtR vs a | t' == (CTerm [] $ zero w) = [[a]]
+                 | otherwise                 = trace ("simplifyLtR " ++ show vs ++ " " ++ show a ++ " = " ++ show res) res
+    where -- t' <= t /\ t-t' `r` x /\ x < -t'
+          mas1 = mkCAtomConj [(Lte, t', t), (r, ctermMinus t t', x), (Lt, x, ctermUMinus t')]
+          -- t < t' /\ (t-t' `r` x  \/ x < -t')
+          mas2 = mkCAtomConj [(Lt, t, t'), (r, ctermMinus t t', x)]
+          mas3 = mkCAtomConj [(Lt, t, t'), (Lt, x, ctermUMinus t')]
+          CAtom r t rhs = a
+          w  = width rhs
+          x  = CTerm vs $ zero w
+          t' = CTerm (filter (\v -> not $ elem v vs) $ ctVars rhs) (ctConst rhs)
           res = catMaybes [mas1,mas2,mas3] 
 
 -- The input atom has the variable to be stripped on the LHS
-stripConstantsL :: CAtom -> [[CAtom]]
-stripConstantsL a | cVal c == 0  = [[a]]
-                  | otherwise    = {-trace ("stripConstantsL " ++ show a ++ " = " ++ show res)-} res
-    where -- t < c /\ -c <= x /\ x `r` t-c
-          mas1 = mkCAtomConj [(Lt, t, cterm), (r, xterm, ctermMinus t cterm), (Lte, ctermUMinus cterm, xterm)]
-          -- t >= c /\ (-c <= x \/ x `r` t-c) 
-          mas2 = mkCAtomConj [(Lte, cterm, t), (r, xterm, ctermMinus t cterm)]
-          mas3 = mkCAtomConj [(Lte, cterm, t), (Lte, ctermUMinus cterm, xterm)]
-          CAtom r (CTerm x c) t = a
-          xterm = CTerm x $ zero $ width a
-          cterm = CTerm [] c
-          res = catMaybes [mas1,mas2,mas3]
+simplifyLtL :: [(Integer, (Var,(Int,Int)))] -> CAtom -> [[CAtom]]
+simplifyLtL vs a | t' == (CTerm [] $ zero w) = [[a]]
+                 | otherwise                 = {-trace ("simplifyLtL " ++ show a ++ " = " ++ show res)-} res
+    where -- t < t' /\ -t' <= x /\ x `r` t-t'
+          mas1 = mkCAtomConj [(Lt, t, t'), (r, x, ctermMinus t t'), (Lte, ctermUMinus t', x)]
+          -- t >= t' /\ (-t' <= x \/ x `r` t-t') 
+          mas2 = mkCAtomConj [(Lte, t', t), (r, x, ctermMinus t t')]
+          mas3 = mkCAtomConj [(Lte, t', t), (Lte, ctermUMinus t', x)]
+          CAtom r lhs t = a
+          w    = width lhs
+          x    = CTerm vs $ zero w
+          t'   = CTerm (filter (\v -> not $ elem v vs) $ ctVars lhs) (ctConst lhs)
+          res  = catMaybes [mas1,mas2,mas3]
 
 simplifyCAtoms :: [CAtom] -> [[CAtom]]
 simplifyCAtoms []     = [[]]
@@ -334,8 +341,8 @@ simplifyCAtoms (a:as) = map nub $ concatMap (\as_ -> map (as_++) as') a'
 
 catomSimplify :: CAtom -> [[CAtom]]
 catomSimplify a@CAtom{..} = 
-    if' ((elem catomRel [Lt, Lte]) && (null $ ctVars catomLHS)) (map (map catomSimplifyFinal) $ stripConstantsR a) $
-    if' ((elem catomRel [Lt, Lte]) && (null $ ctVars catomRHS)) (map (map catomSimplifyFinal) $ stripConstantsL a)
+    if' ((elem catomRel [Lt, Lte]) && (null $ ctVars catomLHS)) (map (map catomSimplifyFinal) $ simplifyLtR (ctVars catomRHS) a) $
+    if' ((elem catomRel [Lt, Lte]) && (null $ ctVars catomRHS)) (map (map catomSimplifyFinal) $ simplifyLtL (ctVars catomLHS) a)
         [[catomSimplifyFinal a]]
 
 catomSimplifyFinal :: CAtom -> CAtom
@@ -351,8 +358,8 @@ eliminateNaked v as = {-trace ("eliminateNaked " ++ show v ++ " " ++ show as ++ 
     where
     res = if' (any (== Left False) as') (Left False) 
               (Right $ other ++ map fromRight (filter (/= Left True) as'))
-    (lts, rts, other) = foldl' (\(lts', rts', other') a@CAtom{..} -> if' (isNakedIn v catomLHS) (lts', (catomRHS, catomRel):rts', other') $
-                                                                     if' (isNakedIn v catomRHS) ((catomLHS, catomRel): lts', rts', other')
+    (lts, rts, other) = foldl' (\(lts', rts', other') a@CAtom{..} -> if' (isX1In v catomLHS) (lts', (catomRHS, catomRel):rts', other') $
+                                                                     if' (isX1In v catomRHS) ((catomLHS, catomRel): lts', rts', other')
                                                                      (lts', rts', a:other'))
                         ([],[],[]) as
     -- in case v occurs on one side of inequalities only, just make sure that,
