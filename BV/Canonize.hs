@@ -307,11 +307,11 @@ simplifyLt v (a@CAtom{..}:as) | (not $ isX1In v catomLHS || isX1In v catomRHS) =
 simplifyLtR :: [(Integer, (Var,(Int,Int)))] -> CAtom -> [[CAtom]]
 simplifyLtR vs a | t' == (CTerm [] $ zero w) = [[a]]
                  | otherwise                 = trace ("simplifyLtR " ++ show vs ++ " " ++ show a ++ " = " ++ show res) res
-    where -- t' <= t /\ t-t' `r` x /\ x < -t'
-          mas1 = mkCAtomConj [(Lte, t', t), (r, ctermMinus t t', x), (Lt, x, ctermUMinus t')]
-          -- t < t' /\ (t-t' `r` x  \/ x < -t')
+    where -- t' <= t /\ t-t' `r` x /\ x <= -t'
+          mas1 = mkCAtomConj [(Lte, t', t), (r, ctermMinus t t', x), (Lte, x, ctermUMinus t')]
+          -- t < t' /\ (t-t' `r` x  \/ x <= -t')
           mas2 = mkCAtomConj [(Lt, t, t'), (r, ctermMinus t t', x)]
-          mas3 = mkCAtomConj [(Lt, t, t'), (Lt, x, ctermUMinus t')]
+          mas3 = mkCAtomConj [(Lt, t, t'), (Lte, x, ctermUMinus t')]
           CAtom r t rhs = a
           w  = width rhs
           x  = CTerm vs $ zero w
