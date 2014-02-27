@@ -307,22 +307,26 @@ simplifyLt v (a@CAtom{..}:as) | (not $ isX1In v catomLHS || isX1In v catomRHS) =
 simplifyLtR :: [(Integer, (Var,(Int,Int)))] -> CAtom -> [[CAtom]]
 simplifyLtR vs a | t' == (CTerm [] $ zero w) = [[a]]
                  | otherwise                 = trace ("simplifyLtR " ++ show vs ++ " " ++ show a ++ " = " ++ show res) res
-    where -- t' <= t /\ t-t' `r` x /\ x <= -t'
-          mas1 = mkCAtomConj [(Lte, t', t), (r, ctermMinus t t', x), (Lte, x, ctermUMinus t')]
+    where -- t'=0 /\ t `r` x
+          mas0 = mkCAtomConj [(Eq, t', CTerm [] $ zero w), (r, t, x)]
+          -- t' <= t /\ t-t' `r` x /\ x <= -t'
+          mas1 = mkCAtomConj [(Lte, t', t), (r, ctermMinus t t', x), (Lt, x, ctermUMinus t')]
           -- t < t' /\ (t-t' `r` x  \/ x <= -t')
           mas2 = mkCAtomConj [(Lt, t, t'), (r, ctermMinus t t', x)]
-          mas3 = mkCAtomConj [(Lt, t, t'), (Lte, x, ctermUMinus t')]
+          mas3 = mkCAtomConj [(Lt, t, t'), (Lt, x, ctermUMinus t')]
           CAtom r t rhs = a
           w  = width rhs
           x  = CTerm vs $ zero w
           t' = CTerm (filter (\v -> not $ elem v vs) $ ctVars rhs) (ctConst rhs)
-          res = catMaybes [mas1,mas2,mas3] 
+          res = catMaybes [mas0,mas1,mas2,mas3] 
 
 -- The input atom has the variable to be stripped on the LHS
 simplifyLtL :: [(Integer, (Var,(Int,Int)))] -> CAtom -> [[CAtom]]
 simplifyLtL vs a | t' == (CTerm [] $ zero w) = [[a]]
                  | otherwise                 = {-trace ("simplifyLtL " ++ show a ++ " = " ++ show res)-} res
-    where -- t < t' /\ -t' <= x /\ x `r` t-t'
+    where -- t' = 0 /\ x `r` t
+          mas0 = mkCAtomConj [(Eq, t', CTerm [] $ zero w), (r, x, t)]
+          -- t < t' /\ -t' <= x /\ x `r` t-t'
           mas1 = mkCAtomConj [(Lt, t, t'), (r, x, ctermMinus t t'), (Lte, ctermUMinus t', x)]
           -- t >= t' /\ (-t' <= x \/ x `r` t-t') 
           mas2 = mkCAtomConj [(Lte, t', t), (r, x, ctermMinus t t')]
@@ -331,7 +335,7 @@ simplifyLtL vs a | t' == (CTerm [] $ zero w) = [[a]]
           w    = width lhs
           x    = CTerm vs $ zero w
           t'   = CTerm (filter (\v -> not $ elem v vs) $ ctVars lhs) (ctConst lhs)
-          res  = catMaybes [mas1,mas2,mas3]
+          res  = catMaybes [mas0,mas1,mas2,mas3]
 
 simplifyCAtoms :: [CAtom] -> [[CAtom]]
 simplifyCAtoms []     = [[]]
