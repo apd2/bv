@@ -6,6 +6,7 @@ module BV.Types(WithWidth(..),
                 Rel(..),
                 Term(..),
                 Atom(..),
+                SVar,
                 CTerm(..),
                 CAtom(..),
                 ppSlice,
@@ -134,9 +135,10 @@ instance Show Atom where
 (.<=) :: Term -> Term -> Atom
 (.<=) t1 t2 = Atom Lte t1 t2
 
+type SVar = (Var, (Int,Int))
 
 -- Term in canonical form (linear combination of vars)
-data CTerm = CTerm { ctVars  :: [(Integer,(Var,(Int,Int)))]
+data CTerm = CTerm { ctVars  :: [(Integer,SVar)]
                    , ctConst :: Const
                    } deriving (Eq,Ord)
 

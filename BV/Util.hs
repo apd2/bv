@@ -114,7 +114,7 @@ ctermMul t c w = ctermOrder $ ctermGather $ ctermMul' t c w
 ctermMul' :: CTerm -> Integer -> Int -> CTerm
 ctermMul' CTerm{..} c w = CTerm (map (\(i,v) -> ((i*c) `mod2` w, v)) ctVars) (mkConst ((cVal ctConst) * c) w)
 
-ctermSubst :: (Var, (Int,Int)) -> CTerm -> CTerm -> CTerm
+ctermSubst :: SVar -> CTerm -> CTerm -> CTerm
 ctermSubst v ct ct'@(CTerm vs c) = 
     ctermPlus
     ((map (\(i,v') -> if' (v'/=v) 
@@ -199,7 +199,7 @@ mkCAtom rel ct1 ct2 | width ct1 /= width ct2 = error "BV.mkCAtom: cannot make an
                     | otherwise          = catom rel ct1 ct2
     where ct@CTerm{..} = ctermPlus [ct1, ctermUMinus ct2] $ width ct1
           
-catomInSolvedForm :: Rel -> (Integer, (Var,(Int,Int))) -> CTerm -> CAtom
+catomInSolvedForm :: Rel -> (Integer, SVar) -> CTerm -> CAtom
 catomInSolvedForm rel (i, v) ct = maybe (CAtom rel (CTerm [(i,v)] (zero $ width ct)) ct) 
                                         (\inv -> CAtom rel (CTerm [(1,v)] (zero $ width ct)) (ctermMul ct inv w))
                                         (constInvert i w)
@@ -209,7 +209,7 @@ catomInSolvedForm rel (i, v) ct = maybe (CAtom rel (CTerm [(i,v)] (zero $ width 
 -- and additional atoms that are implided by the input atom, but not
 -- by the solution. 
 -- (see Section 3.2 of "A decision procedure for bit-vector arithmetic")
-catomSolve :: (Var, (Int,Int)) -> CAtom -> Maybe (Either Bool (CTerm, [CAtom]))
+catomSolve :: SVar -> CAtom -> Maybe (Either Bool (CTerm, [CAtom]))
 catomSolve v (CAtom rel ct1 ct2) | rel /= Eq      = Nothing
                                  | null lhs       = Nothing
                                  | pow2 == 0      = Just $ Right (ctermMul ctrhs inv w, [])
