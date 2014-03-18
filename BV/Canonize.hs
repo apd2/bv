@@ -249,9 +249,9 @@ ex' vs as asns = trace ("ex' " ++ show vs ++ " " ++ show as) $
                  Just i  -> let v = vs !! i in
                             case fromJust $ quant_res !! i of
                                  (Left False,_)   -> Just []
-                                 (Left True ,asn) -> Just ([([], (map (, Left True) $ vs \\ [v]) ++ (v,asn):asns)])
+                                 (Left True ,asn) -> Just ([([], (map (, Left True) $ delete v vs) ++ (v,asn):asns)])
                                  (Right as' ,asn) -> trace ("quantifying " ++ (show v) ++ " -> " ++ show as') $
-                                                     ex' (vs \\ [v]) as' ((v, asn):asns)
+                                                     ex' (delete v vs) as' ((v, asn):asns)
     where quant_res = map (ex1 as) vs
 
 ex1 :: [CAtom] -> SVar -> Maybe (Either Bool [CAtom], Either Bool CTerm)
