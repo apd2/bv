@@ -19,6 +19,6 @@ library
   exposed-modules:     BV.Canonize, BV.Types, BV.Util
   -- other-modules:       
   other-extensions:    RecordWildCards, TupleSections
-  build-depends:       base >=4.7 && <4.8, pretty >=1.1 && <1.2, utility-ht >=0.0 && <0.1, arithmoi >=0.4 && <0.5, util ==0.1.*
+  build-depends:       base >=4.6 && <4.8, pretty >=1.1 && <1.2, utility-ht >=0.0 && <0.1, arithmoi >=0.4 && <0.5, util ==0.1.*
   -- hs-source-dirs:      
   default-language:    Haskell2010
