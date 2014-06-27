@@ -18,6 +18,8 @@ import Util hiding (trace)
 import BV.Types
 import BV.Util
 
+neqToEqThreshold = 4
+
 -----------------------------------------------------------------
 -- Validation
 -----------------------------------------------------------------
@@ -217,10 +219,17 @@ ex :: [Var] -> [CAtom] -> Maybe [([CAtom], [(SVar, Either Bool CTerm)])]
 ex vs as = case catomsSliceVars as vs of
                 (Left False, _)  -> Just []
                 (Left True , _)  -> Just [([], map (\v -> ((v, (0, width v - 1)), Left True)) vs)]
-                (Right as', vs') -> case ex' vs' as' [] of
+                (Right as', vs') -> case mergeSolutions $ map (\as'' -> ex' vs' as'' []) $ replaceNeq as' of
                                          Nothing  -> Nothing
                                          Just ass -> Just $ concatMap (\(as, asns) -> let asns' = substAsns asns in
                                                                                           map (, asns') $ simplifyCAtoms as) ass
+
+mergeSolutions :: [Maybe [([CAtom], [(SVar, Either Bool CTerm)])]] -> Maybe [([CAtom], [(SVar, Either Bool CTerm)])]
+mergeSolutions sols = 
+    case findIndex (maybe False (\sol -> length sol == 1 && (null $ fst $ head sol))) sols of
+         Just i  -> sols !! i
+         Nothing -> if' (any isNothing sols) Nothing (Just (concatMap fromJust sols))
+
 
 -- Takes a list of variable assignments obtained by solving a system of equations.
 -- Expressions in the list may contain variables mentioned earlier in the list.
@@ -290,10 +299,8 @@ exInequalities vs as asns =
                                   $ map nub
                                   $ concatMap (simplifyLt v)
                                   $ expandNeq v as
-                       in case findIndex (maybe False (\sol -> length sol == 1 && (null $ fst $ head sol))) sols of
-                               Just i  -> sols !! i
-                               Nothing -> if' (any isNothing sols) Nothing (Just (concatMap fromJust sols))
-
+                       in mergeSolutions sols
+                       
 isX1In :: SVar -> CTerm -> Bool
 isX1In v CTerm{..} = any (==(1,v)) ctVars
 
@@ -307,6 +314,24 @@ expandNeq v (a@CAtom{..}:as) = concatMap (\a_ -> map (a_:) as') a'
           a' = if' (catomRel == Neq && ((isX1In v catomLHS) || (isX1In v catomRHS))) 
                    asplit [a]
           as' = expandNeq v as
+
+-- Try to replace some of the inequalities with equivalent disjunction of equalities
+replaceNeq :: [CAtom] -> [[CAtom]]
+replaceNeq as = trace ("replaceNeq " ++ show as) $ map concat $ (<$*>) $ [other] : (map replaceNeq' groups)
+    where (neq, other) = partition ((== Neq) . catomRel) as
+          groups = sortAndGroup catomLHS neq
+
+replaceNeq' :: [CAtom] -> [[CAtom]]
+replaceNeq' as | all (null . ctVars . catomRHS) as =
+    let vals = nub $ map (cVal . ctConst . catomRHS) as
+        w = width $ head as
+        numOtherVals = (1 `shiftL` w) - length vals
+        otherVals = [0..(1 `shiftL` w) - 1] \\ vals
+    in trace ("replaceNeq' " ++ show as ++ " vals=" ++ show vals) $
+       if numOtherVals > neqToEqThreshold
+          then [as]
+          else map (\v -> [CAtom Eq (catomLHS $ head as) (CTerm [] $ mkConst v w)]) otherVals
+               | otherwise = [as]
 
 -- Transform inequalities in the form t < x + t' into up to three systems of inequalities, 
 -- where t1' is moved to the LHS.
