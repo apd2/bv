@@ -317,7 +317,7 @@ expandNeq v (a@CAtom{..}:as) = concatMap (\a_ -> map (a_:) as') a'
 
 -- Try to replace some of the inequalities with equivalent disjunction of equalities
 replaceNeq :: [CAtom] -> [[CAtom]]
-replaceNeq as = trace ("replaceNeq " ++ show as) $ map concat $ (<$*>) $ [other] : (map replaceNeq' groups)
+replaceNeq as = trace ("replaceNeq " ++ show as) $ map concat $ sequence $ [other] : (map replaceNeq' groups)
     where (neq, other) = partition ((== Neq) . catomRel) as
           groups = sortAndGroup catomLHS neq
 
