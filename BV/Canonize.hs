@@ -317,7 +317,7 @@ expandNeq v (a@CAtom{..}:as) = concatMap (\a_ -> map (a_:) as') a'
 
 -- Try to replace some of the inequalities with equivalent disjunction of equalities
 replaceNeq :: [CAtom] -> [[CAtom]]
-replaceNeq as = trace ("replaceNeq " ++ show as) $ map concat $ sequence $ [other] : (map replaceNeq' groups)
+replaceNeq as = map concat $ sequence $ [other] : (map replaceNeq' groups)
     where (neq, other) = partition ((== Neq) . catomRel) as
           groups = sortAndGroup catomLHS neq
 
@@ -327,8 +327,7 @@ replaceNeq' as | all (null . ctVars . catomRHS) as =
         w = width $ head as
         numOtherVals = (1 `shiftL` w) - length vals
         otherVals = [0..(1 `shiftL` w) - 1] \\ vals
-    in trace ("replaceNeq' " ++ show as ++ " vals=" ++ show vals) $
-       if numOtherVals > neqToEqThreshold
+    in if numOtherVals > neqToEqThreshold
           then [as]
           else map (\v -> [CAtom Eq (catomLHS $ head as) (CTerm [] $ mkConst v w)]) otherVals
                | otherwise = [as]
@@ -346,7 +345,7 @@ simplifyLt v (a@CAtom{..}:as) | (not $ isX1In v catomLHS || isX1In v catomRHS) =
 -- The input atom has the variable to be stripped on the RHS
 simplifyLtR :: [(Integer, SVar)] -> CAtom -> [[CAtom]]
 simplifyLtR vs a | t' == (CTerm [] $ zero w) = [[a]]
-                 | otherwise                 = trace ("simplifyLtR " ++ show vs ++ " " ++ show a ++ " = " ++ show res) res
+                 | otherwise                 = {-trace ("simplifyLtR " ++ show vs ++ " " ++ show a ++ " = " ++ show res)-} res
     where -- t'=0 /\ t `r` x
           mas0 = mkCAtomConj [(Eq, t', CTerm [] $ zero w), (r, t, x)]
           -- t' <= t /\ t-t' `r` x /\ x <= -t'
