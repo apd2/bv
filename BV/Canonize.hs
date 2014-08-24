@@ -209,7 +209,7 @@ catomSubst v t (CAtom rel t1 t2) = mkCAtom rel (ctermSubst v t t1) (ctermSubst v
 ------------------------------------------------------------
 
 exTerm :: [Var] -> [Atom] -> Maybe [([CAtom], [(SVar, Either Bool CTerm)])]
-exTerm vs as = trace ("exTerm " ++ show vs ++ " " ++ show as) $
+exTerm vs as = {-trace ("exTerm " ++ show vs ++ " " ++ show as) $-}
    case catomsConj (map atomToCAtom as) of
         Left False -> Just []
         Left True  -> Just [([], map (\v -> ((v, (0, width v - 1)), Left True)) vs)]
@@ -246,7 +246,7 @@ substAsn v ct (Right ct') = Right $ ctermSubst v ct ct'
 
 ex' :: [SVar] -> [CAtom] -> [(SVar, Either Bool CTerm)] -> Maybe [([CAtom], [(SVar, Either Bool CTerm)])]
 ex' [] as asns = Just [(as, asns)]
-ex' vs as asns = trace ("ex' " ++ show vs ++ " " ++ show as) $
+ex' vs as asns = {-trace ("ex' " ++ show vs ++ " " ++ show as) $-}
             -- find a variable that can be quantified away
             case findIndex isJust quant_res of
                  Nothing -> -- if all remaining variables occur only in inequalities, 
@@ -259,7 +259,7 @@ ex' vs as asns = trace ("ex' " ++ show vs ++ " " ++ show as) $
                             case fromJust $ quant_res !! i of
                                  (Left False,_)   -> Just []
                                  (Left True ,asn) -> Just ([([], (map (, Left True) $ delete v vs) ++ (v,asn):asns)])
-                                 (Right as' ,asn) -> trace ("quantifying " ++ (show v) ++ " -> " ++ show as') $
+                                 (Right as' ,asn) -> {-trace ("quantifying " ++ (show v) ++ " -> " ++ show as') $-}
                                                      ex' (delete v vs) as' ((v, asn):asns)
     where quant_res = map (ex1 as) vs
 
@@ -285,7 +285,7 @@ exInequalities vs as asns =
         mv = find (\v -> all (\CAtom{..} -> (isX1In v catomLHS && (not $ isIn v catomRHS)) || 
                                             (isX1In v catomRHS && (not $ isIn v catomLHS)) || 
                                             (not $ isIn v catomLHS || isIn v catomRHS)) as) vs
-    in trace ("exInequalities " ++ show vs ++ " " ++ show as) $ 
+    in {-trace ("exInequalities " ++ show vs ++ " " ++ show as) $-} 
        case mv of
             Nothing -> Nothing
             Just v  -> let vs'  = filter (/= v) vs 
